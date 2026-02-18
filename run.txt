@@ -1,0 +1,13 @@
+# 第一次
+mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Debug
+
+# 之后只 rebuild
+cd build
+cmake --build . -j$(nproc)
+./main
+
+cd ~/code/cpp/snakebox
+rm -rf build/
+mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+ln -sf build/compile_commands.json ../

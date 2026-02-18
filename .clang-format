@@ -1,0 +1,98 @@
+---
+BasedOnStyle: LLVM
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 100
+
+BreakBeforeBraces: Attach
+
+BraceWrapping:
+  AfterClass: false
+  AfterControlStatement: false
+  AfterEnum: false
+  AfterFunction: false
+  AfterNamespace: false
+  AfterObjCDeclaration: false
+  AfterStruct: false
+  AfterUnion: false
+  BeforeCatch: false
+  BeforeElse: false
+  IndentBraces: false
+
+AccessModifierOffset: -4
+
+PointerAlignment: Left
+
+AllowShortFunctionsOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: true
+AllowShortLoopsOnASingleLine: true
+
+AlwaysBreakTemplateDeclarations: Yes
+
+SortIncludes: true
+IncludeBlocks: Regroup
+
+AlignConsecutiveMacros: true
+
+AlignConsecutiveAssignments: false
+
+AlignAfterOpenBracket: Align
+
+AlignTrailingComments: true
+
+...
+
+# # .clang-format
+# BasedOnStyle: Microsoft
+# IndentWidth: 4
+# TabWidth: 4
+# UseTab: Never
+# ColumnLimit: 120
+# AccessModifierOffset: -4
+# AlignAfterOpenBracket: Align
+# AlignOperands: true
+# AllowShortIfStatementsOnASingleLine: false
+# AllowShortLoopsOnASingleLine: false
+# AlwaysBreakAfterDefinitionReturnType: None
+# AlwaysBreakTemplateDeclarations: Yes
+# BinPackArguments: false
+# BinPackParameters: false
+# BraceWrapping:
+#   AfterClass: true
+#   AfterControlStatement: true
+#   AfterEnum: true
+#   AfterFunction: true
+#   AfterNamespace: true
+#   AfterStruct: true
+#   AfterUnion: true
+#   BeforeCatch: true
+#   BeforeElse: true
+#   IndentBraces: false
+# BreakBeforeBraces: Custom
+# FixNamespaceComments: true
+# IncludeBlocks: Regroup
+# IncludeCategories:
+#   - Regex: '^<.*>'
+#     Priority: 1
+#   - Regex: '^".*"'
+#     Priority: 2
+#   - Regex: '.*'
+#     Priority: 3
+# SortIncludes: true
+# MaxEmptyLinesToKeep: 2
+# KeepEmptyLinesAtTheStartOfBlocks: false
+# ObjCSpaceAfterProperty: false
+# ObjCSpaceBeforeProtocolList: true
+# PointerAlignment: Left
+# ReflowComments: false
+# SpaceAfterCStyleCast: false
+# SpaceAfterLogicalNot: false
+# SpaceAfterTemplateKeyword: true
+# SpaceBeforeAssignmentOperators: true
+# SpaceBeforeParens: ControlStatements
+# SpaceInEmptyParentheses: false
+# SpacesInContainerLiterals: true
+# SpacesInCStyleCastParentheses: false
+# SpacesInParentheses: false
+# UseCRLF: false
