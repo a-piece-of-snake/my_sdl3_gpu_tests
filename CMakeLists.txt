@@ -3,6 +3,7 @@ project(sdltests VERSION 1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # =============== 寻找包 (系统级) ===============
 find_package(SDL3 REQUIRED CONFIG)
