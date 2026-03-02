@@ -3,6 +3,8 @@
 
 #include <SDL3/SDL.h>
 #include <fstream>
+#include <glm/glm.hpp>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -10,6 +12,11 @@ int g_frameCount = 0;
 Uint32 g_startTime = SDL_GetTicks();
 float g_fps = 0.F;
 std::string g_basePath = "./";
+
+struct Vertex {
+    glm::vec3 m_position;
+    glm::u8vec4 m_color;
+};
 
 auto LoadShader(SDL_GPUDevice* device, const std::string& shaderFilename, const Uint32 samplerCount,
                 const Uint32 uniformBufferCount, const Uint32 storageBufferCount,
@@ -76,6 +83,8 @@ auto LoadShader(SDL_GPUDevice* device, const std::string& shaderFilename, const 
 }
 
 auto main(int argc, char* argv[]) -> int {
+
+    SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "wayland");
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         LOG_ERROR("程序毙掉了 SDL初始化失败");
         return 1;
@@ -101,7 +110,12 @@ auto main(int argc, char* argv[]) -> int {
         LOG_ERROR("程序毙掉了 声明不了窗口给gpu设备");
         return 1;
     }
-    SDL_GPUShader* vertexShader{LoadShader(device, "RawTriangle.vert", 0, 0, 0, 0)};
+
+    // SDL_SetGPUSwapchainParameters(
+    //     device, window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR,
+    //     SDL_GPU_PRESENTMODE_IMMEDIATE); // 这是测试极限用的,未来的傻福蛇别开
+
+    SDL_GPUShader* vertexShader{LoadShader(device, "PositionColor.vert", 0, 0, 0, 0)};
     if (vertexShader == nullptr) {
         LOG_ERROR("程序没毙掉 不能加载定点着色器");
     }
@@ -119,12 +133,27 @@ auto main(int argc, char* argv[]) -> int {
     graphicsPipelineTargetInfo.color_target_descriptions = colorTargetDescriptions.data();
     graphicsPipelineTargetInfo.num_color_targets = colorTargetDescriptions.size();
 
+    std::vector<SDL_GPUVertexAttribute> vertexAttributes{};
+    std::vector<SDL_GPUVertexBufferDescription> vertexBufferDescriptions{};
+
+    vertexAttributes.emplace_back(0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, 0);
+    vertexAttributes.emplace_back(1, 0, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM, sizeof(float) * 3);
+
+    vertexBufferDescriptions.emplace_back(0, sizeof(Vertex), SDL_GPU_VERTEXINPUTRATE_VERTEX, 0);
+
+    SDL_GPUVertexInputState vertexInputState{};
+    vertexInputState.vertex_attributes = vertexAttributes.data();
+    vertexInputState.num_vertex_attributes = vertexAttributes.size();
+    vertexInputState.vertex_buffer_descriptions = vertexBufferDescriptions.data();
+    vertexInputState.num_vertex_buffers = vertexBufferDescriptions.size();
+
     SDL_GPUGraphicsPipelineCreateInfo graphicsPipelineCreateInfo{};
     graphicsPipelineCreateInfo.fragment_shader = fragmentShader;
     graphicsPipelineCreateInfo.vertex_shader = vertexShader;
     graphicsPipelineCreateInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
     graphicsPipelineCreateInfo.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
     graphicsPipelineCreateInfo.target_info = graphicsPipelineTargetInfo;
+    graphicsPipelineCreateInfo.vertex_input_state = vertexInputState;
 
     SDL_GPUGraphicsPipeline* graphicsPipeline{
         SDL_CreateGPUGraphicsPipeline(device, &graphicsPipelineCreateInfo)};
@@ -134,6 +163,70 @@ auto main(int argc, char* argv[]) -> int {
 
     SDL_ReleaseGPUShader(device, vertexShader);
     SDL_ReleaseGPUShader(device, fragmentShader);
+
+    std::vector<Vertex> vertices{
+        {{-0.5F, -0.5F, 0.0F}, {255, 0, 0, 255}}, {{0.5F, -0.5F, 0.0F}, {0, 255, 0, 255}},
+        {{0.5F, 0.5F, 0.0F}, {0, 0, 255, 255}},
+
+        {{-0.5F, -0.5F, 0.0F}, {255, 0, 0, 255}}, {{0.5F, 0.5F, 0.0F}, {0, 0, 255, 255}},
+        {{-0.5F, 0.5F, 0.0F}, {255, 255, 0, 255}}};
+
+    SDL_GPUBufferCreateInfo bufferCreateInfo{};
+    bufferCreateInfo.size = vertices.size() * sizeof(Vertex);
+    bufferCreateInfo.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
+
+    SDL_GPUBuffer* vertexBuffer{SDL_CreateGPUBuffer(device, &bufferCreateInfo)};
+    if (vertexBuffer == nullptr) {
+        LOG_ERROR("程序毙掉了 无法创建gpu缓冲区");
+        return 1;
+    }
+
+    SDL_GPUTransferBufferCreateInfo transferBufferCreateInfo{};
+    transferBufferCreateInfo.size = bufferCreateInfo.size;
+    transferBufferCreateInfo.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+
+    SDL_GPUTransferBuffer* transferBuffer{
+        SDL_CreateGPUTransferBuffer(device, &transferBufferCreateInfo)};
+    if (transferBuffer == nullptr) {
+        LOG_ERROR("程序毙掉了 无法创建传输缓冲区");
+        return 1;
+    }
+    auto* transferBufferDatePtr{
+        static_cast<Vertex*>(SDL_MapGPUTransferBuffer(device, transferBuffer, false))};
+    if (transferBufferDatePtr == nullptr) {
+        LOG_ERROR("程序毙掉了 无法映射传输缓冲区");
+        return 1;
+    }
+    std::span transferBufferData{transferBufferDatePtr, vertices.size()};
+    std::ranges::copy(vertices, transferBufferData.begin());
+
+    SDL_UnmapGPUTransferBuffer(device, transferBuffer);
+
+    SDL_GPUCommandBuffer* transferCommendBuffer{SDL_AcquireGPUCommandBuffer(device)};
+    if (transferCommendBuffer == nullptr) {
+        LOG_ERROR("程序毙掉了 无法获得gpu命令缓冲");
+        return 1;
+    }
+    SDL_GPUCopyPass* copyPass{SDL_BeginGPUCopyPass(transferCommendBuffer)};
+
+    SDL_GPUTransferBufferLocation source{};
+    source.transfer_buffer = transferBuffer;
+    source.offset = 0;
+
+    SDL_GPUBufferRegion destination{};
+    destination.buffer = vertexBuffer;
+    destination.size = bufferCreateInfo.size;
+    destination.offset = 0;
+
+    SDL_UploadToGPUBuffer(copyPass, &source, &destination, false);
+
+    SDL_EndGPUCopyPass(copyPass);
+    if (!SDL_SubmitGPUCommandBuffer(transferCommendBuffer)) {
+        LOG_ERROR("程序毙掉了 无法提交gpu命令缓冲");
+        return 1;
+    }
+    SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
+
     SDL_ShowWindow(window);
 
     bool isRunning{true};
@@ -164,6 +257,8 @@ auto main(int argc, char* argv[]) -> int {
             return 1;
         }
         SDL_GPUTexture* swapChainTexture = nullptr;
+        // SDL_AcquireGPUSwapchainTexture(commendBuffer, window, &swapChainTexture, nullptr,
+        // nullptr);//这是测试极限用的,未来的傻福蛇别开
         SDL_WaitAndAcquireGPUSwapchainTexture(commendBuffer, window, &swapChainTexture, nullptr,
                                               nullptr);
         if (swapChainTexture != nullptr) {
@@ -175,7 +270,11 @@ auto main(int argc, char* argv[]) -> int {
             SDL_GPURenderPass* renderPass{SDL_BeginGPURenderPass(commendBuffer, colorTargets.data(),
                                                                  colorTargets.size(), nullptr)};
             SDL_BindGPUGraphicsPipeline(renderPass, graphicsPipeline);
-            SDL_DrawGPUPrimitives(renderPass, 3, 1, 0, 0);
+
+            std::vector<SDL_GPUBufferBinding> bindings{{vertexBuffer, 0}};
+            SDL_BindGPUVertexBuffers(renderPass, 0, bindings.data(), bindings.size());
+
+            SDL_DrawGPUPrimitives(renderPass, vertices.size(), 1, 0, 0);
 
             SDL_EndGPURenderPass(renderPass);
         }
@@ -185,6 +284,7 @@ auto main(int argc, char* argv[]) -> int {
         }
     }
 
+    SDL_ReleaseGPUBuffer(device, vertexBuffer);
     SDL_ReleaseGPUGraphicsPipeline(device, graphicsPipeline);
     SDL_ReleaseWindowFromGPUDevice(device, window);
     SDL_DestroyGPUDevice(device);

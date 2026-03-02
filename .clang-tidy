@@ -10,7 +10,8 @@ Checks: >
   -cppcoreguidelines-avoid-magic-numbers,
   -readability-magic-numbers,
   -cppcoreguidelines-avoid-non-const-global-variables,
-  -bugprone-easily-swappable-parameters
+  -bugprone-easily-swappable-parameters,
+  -readability-identifier-length
 
 WarningsAsErrors: 'bugprone-*,cppcoreguidelines-owning-memory'
 

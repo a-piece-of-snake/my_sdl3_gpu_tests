@@ -11,3 +11,8 @@ rm -rf build/
 mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 ln -sf build/compile_commands.json ../
+
+
+
+
+

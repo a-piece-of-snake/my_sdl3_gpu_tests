@@ -7,9 +7,10 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # =============== 寻找包 (系统级) ===============
 find_package(SDL3 REQUIRED CONFIG)
-# find_package(SDL3_image REQUIRED CONFIG)
+find_package(SDL3_image REQUIRED CONFIG)
 find_package(OpenGL REQUIRED)
 find_package(imgui REQUIRED CONFIG)
+find_package(glm REQUIRED CONFIG)
 
 # =============== 源文件列表 ===============
 set(SOURCES
@@ -25,8 +26,10 @@ target_include_directories(main PRIVATE ${CMAKE_SOURCE_DIR})
 # =============== 链接库 ===============
 target_link_libraries(main PRIVATE 
     SDL3::SDL3
+    SDL3_image::SDL3_image
     OpenGL::GL
     imgui::imgui
+    glm::glm
 )
 # =============== 复制 Content 文件夹 ===============
 set(CONTENT_SOURCE_DIR ${CMAKE_SOURCE_DIR}/Content)
