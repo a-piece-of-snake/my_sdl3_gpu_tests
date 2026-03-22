@@ -82,7 +82,7 @@ auto LoadShader(SDL_GPUDevice* device, const std::string& shaderFilename, const 
     return shader;
 }
 
-auto main(int argc, char* argv[]) -> int {
+auto main(int argc, char* argv[]) -> int { // TODO:我感觉我要写点注释了
 
     SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "wayland");
     if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -121,7 +121,7 @@ auto main(int argc, char* argv[]) -> int {
     }
 
     SDL_GPUShader* fragmentShader{LoadShader(device, "SolidColor.frag", 0, 0, 0, 0)};
-    if (vertexShader == nullptr) {
+    if (fragmentShader == nullptr) {
         LOG_ERROR("程序没毙掉 不能加载片段着色器");
     }
 
@@ -164,25 +164,42 @@ auto main(int argc, char* argv[]) -> int {
     SDL_ReleaseGPUShader(device, vertexShader);
     SDL_ReleaseGPUShader(device, fragmentShader);
 
-    std::vector<Vertex> vertices{
-        {{-0.5F, -0.5F, 0.0F}, {255, 0, 0, 255}}, {{0.5F, -0.5F, 0.0F}, {0, 255, 0, 255}},
-        {{0.5F, 0.5F, 0.0F}, {0, 0, 255, 255}},
+    std::vector<Vertex> vertices{{{-0.5F, -0.5F, 0.0F}, {255, 0, 0, 255}},
+                                 {{0.5F, -0.5F, 0.0F}, {0, 255, 0, 255}},
+                                 {{0.5F, 0.5F, 0.0F}, {0, 0, 255, 255}},
+                                 {{-0.5F, 0.5F, 0.0F}, {255, 255, 0, 255}}};
 
-        {{-0.5F, -0.5F, 0.0F}, {255, 0, 0, 255}}, {{0.5F, 0.5F, 0.0F}, {0, 0, 255, 255}},
-        {{-0.5F, 0.5F, 0.0F}, {255, 255, 0, 255}}};
+    // std::vector<Vertex> vertices{
+    //     {{-0.5F, -0.5F, 0.0F}, {255, 0, 0, 255}},  {{0.5F, -0.5F, 0.0F}, {0, 255, 0, 255}},
+    //     {{0.5F, 0.5F, 0.0F}, {0, 0, 255, 255}},    {{0.5F, 0.5F, 0.0F}, {0, 0, 255, 255}},
+    //     {{-0.5F, 0.5F, 0.0F}, {255, 255, 0, 255}}, {{-0.5F, -0.5F, 0.0F}, {255, 0, 0, 255}}};
 
-    SDL_GPUBufferCreateInfo bufferCreateInfo{};
-    bufferCreateInfo.size = vertices.size() * sizeof(Vertex);
-    bufferCreateInfo.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
+    std::vector<Uint32> indices{0, 1, 2, 2, 3, 0};
 
-    SDL_GPUBuffer* vertexBuffer{SDL_CreateGPUBuffer(device, &bufferCreateInfo)};
+    // std::vector<Uint32> indices{0, 1, 2, 3, 4, 5};
+
+    SDL_GPUBufferCreateInfo indexBufferCreateInfo{};
+    indexBufferCreateInfo.size = indices.size() * sizeof(Uint32);
+    indexBufferCreateInfo.usage = SDL_GPU_BUFFERUSAGE_INDEX;
+
+    SDL_GPUBuffer* indexBuffer{SDL_CreateGPUBuffer(device, &indexBufferCreateInfo)};
+    if (indexBuffer == nullptr) {
+        LOG_ERROR("程序毙掉了 无法创建gpu顶点缓冲区");
+        return 1;
+    }
+
+    SDL_GPUBufferCreateInfo vertexBufferCreateInfo{};
+    vertexBufferCreateInfo.size = vertices.size() * sizeof(Vertex);
+    vertexBufferCreateInfo.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
+
+    SDL_GPUBuffer* vertexBuffer{SDL_CreateGPUBuffer(device, &vertexBufferCreateInfo)};
     if (vertexBuffer == nullptr) {
-        LOG_ERROR("程序毙掉了 无法创建gpu缓冲区");
+        LOG_ERROR("程序毙掉了 无法创建gpu顶点缓冲区");
         return 1;
     }
 
     SDL_GPUTransferBufferCreateInfo transferBufferCreateInfo{};
-    transferBufferCreateInfo.size = bufferCreateInfo.size;
+    transferBufferCreateInfo.size = vertexBufferCreateInfo.size + indexBufferCreateInfo.size;
     transferBufferCreateInfo.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
 
     SDL_GPUTransferBuffer* transferBuffer{
@@ -191,14 +208,30 @@ auto main(int argc, char* argv[]) -> int {
         LOG_ERROR("程序毙掉了 无法创建传输缓冲区");
         return 1;
     }
-    auto* transferBufferDatePtr{
-        static_cast<Vertex*>(SDL_MapGPUTransferBuffer(device, transferBuffer, false))};
-    if (transferBufferDatePtr == nullptr) {
+
+    // auto* transferBufferDataPtr{SDL_MapGPUTransferBuffer(device, transferBuffer, false)};
+    // if (transferBufferDataPtr == nullptr) {
+    //     LOG_ERROR("程序毙掉了 无法映射传输缓冲区");
+    //     return 1;
+    // }
+    // std::span transferBufferData{static_cast<Vertex*>(transferBufferDataPtr), vertices.size()};
+    // std::ranges::copy(vertices, transferBufferData.begin());
+
+    auto* transferBufferDataPtr{
+        static_cast<Uint8*>(SDL_MapGPUTransferBuffer(device, transferBuffer, false))};
+    if (transferBufferDataPtr == nullptr) {
         LOG_ERROR("程序毙掉了 无法映射传输缓冲区");
         return 1;
     }
-    std::span transferBufferData{transferBufferDatePtr, vertices.size()};
-    std::ranges::copy(vertices, transferBufferData.begin());
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+    std::span vertexBufferData{reinterpret_cast<Vertex*>(transferBufferDataPtr), vertices.size()};
+    std::ranges::copy(vertices, vertexBufferData.begin());
+
+    std::span indexBufferData{
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+        reinterpret_cast<Uint32*>(transferBufferDataPtr + vertexBufferCreateInfo.size),
+        indices.size()};
+    std::ranges::copy(indices, indexBufferData.begin());
 
     SDL_UnmapGPUTransferBuffer(device, transferBuffer);
 
@@ -209,15 +242,29 @@ auto main(int argc, char* argv[]) -> int {
     }
     SDL_GPUCopyPass* copyPass{SDL_BeginGPUCopyPass(transferCommendBuffer)};
 
+    // SDL_GPUTransferBufferLocation source{};
+    // source.transfer_buffer = transferBuffer;
+    // source.offset = 0;
+    //
+    // SDL_GPUBufferRegion destination{};
+    // destination.buffer = vertexBuffer;
+    // destination.size = vertexBufferCreateInfo.size;
+    // destination.offset = 0;
+    //
+    // SDL_UploadToGPUBuffer(copyPass, &source, &destination, false);
+
     SDL_GPUTransferBufferLocation source{};
     source.transfer_buffer = transferBuffer;
     source.offset = 0;
-
     SDL_GPUBufferRegion destination{};
     destination.buffer = vertexBuffer;
-    destination.size = bufferCreateInfo.size;
+    destination.size = vertexBufferCreateInfo.size;
     destination.offset = 0;
+    SDL_UploadToGPUBuffer(copyPass, &source, &destination, false);
 
+    source.offset = vertexBufferCreateInfo.size;
+    destination.buffer = indexBuffer;
+    destination.size = indexBufferCreateInfo.size;
     SDL_UploadToGPUBuffer(copyPass, &source, &destination, false);
 
     SDL_EndGPUCopyPass(copyPass);
@@ -274,7 +321,10 @@ auto main(int argc, char* argv[]) -> int {
             std::vector<SDL_GPUBufferBinding> bindings{{vertexBuffer, 0}};
             SDL_BindGPUVertexBuffers(renderPass, 0, bindings.data(), bindings.size());
 
-            SDL_DrawGPUPrimitives(renderPass, vertices.size(), 1, 0, 0);
+            SDL_GPUBufferBinding indexBufferBinding{indexBuffer, 0};
+            SDL_BindGPUIndexBuffer(renderPass, &indexBufferBinding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+
+            SDL_DrawGPUIndexedPrimitives(renderPass, indices.size(), 1, 0, 0, 0);
 
             SDL_EndGPURenderPass(renderPass);
         }
@@ -285,6 +335,7 @@ auto main(int argc, char* argv[]) -> int {
     }
 
     SDL_ReleaseGPUBuffer(device, vertexBuffer);
+    SDL_ReleaseGPUBuffer(device, indexBuffer);
     SDL_ReleaseGPUGraphicsPipeline(device, graphicsPipeline);
     SDL_ReleaseWindowFromGPUDevice(device, window);
     SDL_DestroyGPUDevice(device);
