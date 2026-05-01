@@ -2,6 +2,8 @@
 #include "colorful_log.h"
 
 #include <SDL3/SDL.h>
+#include <SDL3_image/SDL_image.h>
+#include <cstring>
 #include <fstream>
 #include <glm/glm.hpp>
 #include <span>
@@ -13,9 +15,9 @@ Uint32 g_startTime = SDL_GetTicks();
 float g_fps = 0.F;
 std::string g_basePath = "./";
 
-struct Vertex {           // 16字节
+struct Vertex {           // 20字节
     glm::vec3 m_position; // 12字节
-    glm::u8vec4 m_color;  // 4字节
+    glm::vec2 m_uv;       // 8字节
 };
 
 auto LoadShader(SDL_GPUDevice* device, const std::string& shaderFilename, const Uint32 samplerCount,
@@ -28,7 +30,7 @@ auto LoadShader(SDL_GPUDevice* device, const std::string& shaderFilename, const 
     } else if (shaderFilename.contains(".frag")) {
         stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
     } else {
-        LOG_ERROR("shader毙掉了 无效的着色器阶段");
+        LOG_SDL_ERROR("shader毙掉了 无效的着色器阶段");
         return nullptr;
     }
 
@@ -53,26 +55,26 @@ auto LoadShader(SDL_GPUDevice* device, const std::string& shaderFilename, const 
         format = SDL_GPU_SHADERFORMAT_DXIL;
         entryPoint = "main";
     } else {
-        LOG_ERROR("shader毙掉了: 当前后端不支持任何已知格式,你冯的自己去想办法 [%s]",
-                  SDL_GetGPUDeviceDriver(device));
+        LOG_SDL_ERROR("shader毙掉了: 当前后端不支持任何已知格式,你冯的自己去想办法 [%s]",
+                      SDL_GetGPUDeviceDriver(device));
         return nullptr;
     }
 
     // 打开shader
     std::ifstream file{fullPath, std::ios::binary};
     if (!file) {
-        LOG_ERROR("shader毙掉了: 打不开shader");
+        LOG_SDL_ERROR("shader毙掉了: 打不开shader");
     }
     // 读入shader
     std::vector<Uint8> code{std::istreambuf_iterator(file), {}};
 
     SDL_GPUShaderCreateInfo shaderInfo{};
-    shaderInfo.code = static_cast<const Uint8*>(code.data()); // shader文件
-    shaderInfo.code_size = code.size();                       // shader文件大小
-    shaderInfo.entrypoint = entryPoint;                       // 入口点 对应后端
-    shaderInfo.format = format;                               // shader格式 顶点片段等等
-    shaderInfo.stage = stage;                                 // shader类型 对应后端
-    shaderInfo.num_samplers = samplerCount; // 采样器数量 如果要贴图需要用它来读图片的数据
+    shaderInfo.code = static_cast<const Uint8*>(code.data());
+    shaderInfo.code_size = code.size();     // shader字节码的原始字节长度
+    shaderInfo.entrypoint = entryPoint;     // 入口点 对应后端
+    shaderInfo.format = format;             // shader格式 顶点片段等等
+    shaderInfo.stage = stage;               // shader类型 对应后端
+    shaderInfo.num_samplers = samplerCount; // 采样器数量 如果要纹理需要用它来读图片的数据
     shaderInfo.num_uniform_buffers = uniformBufferCount;   // Uniform缓冲数量 传递参数
     shaderInfo.num_storage_buffers = storageBufferCount;   // 存储缓冲数量 shader可以直接读写的数组
     shaderInfo.num_storage_textures = storageTextureCount; // 存储纹理数量 shader可以直接读写的图片
@@ -80,13 +82,38 @@ auto LoadShader(SDL_GPUDevice* device, const std::string& shaderFilename, const 
     // 创建shader
     SDL_GPUShader* shader = SDL_CreateGPUShader(device, &shaderInfo);
     if (shader == nullptr) {
-        LOG_ERROR("shader毙掉了 无法创建shader");
+        LOG_SDL_ERROR("shader毙掉了 无法创建shader");
         return nullptr;
     }
     LOG_SUCCESS("shader加载成功: [%s]", shaderFilename.c_str());
     return shader;
 }
+auto LoadImage(std::string imageFilename, const int desiredChannels) -> SDL_Surface* {
+    const std::string fullPath =
+        std::format("{}/Content/Images/{}", g_basePath, imageFilename); // 完整图片地址
+    SDL_Surface* result{IMG_Load(fullPath.c_str())};
+    SDL_PixelFormat format{};
 
+    if (result == nullptr) {
+        LOG_SDL_ERROR("图片毙掉了: 加载图片失败 [%s]", fullPath.c_str());
+        return nullptr;
+    }
+
+    if (desiredChannels == 4) {
+        format = SDL_PIXELFORMAT_ABGR8888;
+    } else {
+        SDL_DestroySurface(result);
+        LOG_ERROR("图片毙掉了: 不支持的通道数量");
+        return nullptr;
+    }
+    if (result->format != format) {
+        SDL_Surface* next = SDL_ConvertSurface(result, format);
+        SDL_DestroySurface(result);
+        result = next;
+    }
+
+    return result;
+}
 auto main(int argc, char* argv[]) -> int {
     const char* sessionType = std::getenv("XDG_SESSION_TYPE");
     if ((sessionType != nullptr) && std::string_view(sessionType) == "wayland") {
@@ -97,11 +124,14 @@ auto main(int argc, char* argv[]) -> int {
     }
 
     if (!SDL_Init(SDL_INIT_VIDEO)) {
-        LOG_ERROR("SDL 初始化失败: %s", SDL_GetError());
+        LOG_SDL_ERROR("SDL 初始化失败: %s", SDL_GetError());
         return 1;
     }
 
     LOG_SUCCESS("当前使用的显示协议: [%s]", SDL_GetCurrentVideoDriver());
+
+    // 设置自定义日志
+    SDL_SetLogOutputFunction(MySDLLogOutput, nullptr);
 
     // 获取基础地址
     if (SDL_GetBasePath() != nullptr) {
@@ -110,37 +140,36 @@ auto main(int argc, char* argv[]) -> int {
     // 创建窗口
     SDL_Window* window(SDL_CreateWindow("CppProject", 800, 600, SDL_WINDOW_RESIZABLE));
     if (window == nullptr) {
-        LOG_ERROR("程序毙掉了 窗口初始化失败");
+        LOG_SDL_ERROR("程序毙掉了 窗口初始化失败");
         return 1;
     }
     // 创建gpu设备
     SDL_GPUDevice* device(SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV, true, nullptr));
     if (device == nullptr) {
-        LOG_ERROR("程序毙掉了 创建不了gpu设备");
+        LOG_SDL_ERROR("程序毙掉了 创建不了gpu设备");
         return 1;
     }
     // 输出gpu后端
     LOG_INFO("当前使用的gpu后端: [%s]", SDL_GetGPUDeviceDriver(device));
     // 声明窗口到gpu设备
     if (!SDL_ClaimWindowForGPUDevice(device, window)) {
-        LOG_ERROR("程序毙掉了 声明不了窗口给gpu设备");
+        LOG_SDL_ERROR("程序毙掉了 声明不了窗口给gpu设备");
         return 1;
     }
 
-    // SDL_SetGPUSwapchainParameters(
-    //     device, window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR,
-    //     SDL_GPU_PRESENTMODE_IMMEDIATE); // 这是测试极限用的,未来的傻福蛇别开
-
     // 读取顶点着色器
-    SDL_GPUShader* vertexShader{LoadShader(device, "PositionColor.vert", 0, 0, 0, 0)};
+    SDL_GPUShader* vertexShader{LoadShader(device, "TexturedQuad.vert", 0, 0, 0, 0)};
     if (vertexShader == nullptr) {
-        LOG_ERROR("程序没毙掉 不能加载定点着色器");
+        LOG_SDL_ERROR("程序没毙掉 不能加载定点着色器");
     }
     // 读取片段着色器
-    SDL_GPUShader* fragmentShader{LoadShader(device, "SolidColor.frag", 0, 0, 0, 0)};
+    SDL_GPUShader* fragmentShader{LoadShader(device, "TexturedQuad.frag", 1, 0, 0, 0)};
     if (fragmentShader == nullptr) {
-        LOG_ERROR("程序没毙掉 不能加载片段着色器");
+        LOG_SDL_ERROR("程序没毙掉 不能加载片段着色器");
     }
+
+    // 加载图片
+    SDL_Surface* imageData{LoadImage("snake.png", 4)};
 
     SDL_GPUColorTargetDescription colorTargetDescription{};
     colorTargetDescription.format = SDL_GetGPUSwapchainTextureFormat(device, window);
@@ -155,10 +184,11 @@ auto main(int argc, char* argv[]) -> int {
 
     // 描述一个顶点数据是如何分布的
     // 位置 3个float
-    vertexAttributes.emplace_back(0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, 0);
+    vertexAttributes.emplace_back(0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+                                  offsetof(Vertex, m_position));
 
-    // 颜色 4个归一化字节
-    vertexAttributes.emplace_back(1, 0, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM, sizeof(float) * 3);
+    // uv 2个float
+    vertexAttributes.emplace_back(1, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(Vertex, m_uv));
 
     vertexBufferDescriptions.emplace_back(0, sizeof(Vertex), SDL_GPU_VERTEXINPUTRATE_VERTEX, 0);
 
@@ -183,18 +213,49 @@ auto main(int argc, char* argv[]) -> int {
     SDL_GPUGraphicsPipeline* graphicsPipeline{
         SDL_CreateGPUGraphicsPipeline(device, &graphicsPipelineCreateInfo)};
     if (graphicsPipeline == nullptr) {
-        LOG_ERROR("程序毙掉了 无法创建图形管道");
+        LOG_SDL_ERROR("程序毙掉了 无法创建图形管道");
     }
 
     // 释放shader
     SDL_ReleaseGPUShader(device, vertexShader);
     SDL_ReleaseGPUShader(device, fragmentShader);
 
+    // LinearClamp (线性过滤 边缘拉伸)
+    SDL_GPUSamplerCreateInfo samplerCreateInfo{};
+    samplerCreateInfo.min_filter = SDL_GPU_FILTER_LINEAR; // 缩小线性
+    samplerCreateInfo.mag_filter = SDL_GPU_FILTER_LINEAR; // 放大线性
+    samplerCreateInfo.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_LINEAR;
+    samplerCreateInfo.address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE; // u方向截断
+    samplerCreateInfo.address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE; // v方向截断
+    samplerCreateInfo.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE; // w方向截断
+
+    SDL_GPUSampler* sampler{SDL_CreateGPUSampler(device, &samplerCreateInfo)}; // 创建采样器
+
+    SDL_GPUTextureCreateInfo textureCreateInfo{};
+    textureCreateInfo.type = SDL_GPU_TEXTURETYPE_2D;                 // 2D纹理
+    textureCreateInfo.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM; // 格式 RGBA各8位 归一化
+    textureCreateInfo.width = imageData->w;                          // 像素宽度
+    textureCreateInfo.height = imageData->h;                         // 像素高度
+    textureCreateInfo.layer_count_or_depth = 1;             // 数组层数 对于普通2D图片永远为1
+    textureCreateInfo.num_levels = 1;                       // Mipmap等级
+    textureCreateInfo.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER; // 用途
+
+    SDL_GPUTexture* texture{SDL_CreateGPUTexture(device, &textureCreateInfo)}; // 创建纹理
+    if (texture == nullptr) {
+        LOG_SDL_ERROR("程序毙掉了: 无法创建gpu纹理");
+    }
+    SDL_SetGPUTextureName(device, texture, "snake.png"); // 设置纹理名称
+
     // 长方形
-    std::vector<Vertex> vertices{{{-0.5F, -0.5F, 0.0F}, {255, 0, 0, 255}},
-                                 {{0.5F, -0.5F, 0.0F}, {0, 255, 0, 255}},
-                                 {{0.5F, 0.5F, 0.0F}, {0, 0, 255, 255}},
-                                 {{-0.5F, 0.5F, 0.0F}, {255, 255, 0, 255}}};
+    std::vector<Vertex> vertices{{{-0.5F, -0.5F, 0.0F}, {1.0F, 1.0F}},
+                                 {{0.5F, -0.5F, 0.0F}, {0.0F, 1.0F}},
+                                 {{0.5F, 0.5F, 0.0F}, {0.0F, 0.0F}},
+                                 {{-0.5F, 0.5F, 0.0F}, {1.0F, 0.0F}}};
+
+    // std::vector<Vertex> vertices{{{-0.5F, -0.5F, 0.0F}, {255, 0, 0, 255}},
+    //                              {{0.5F, -0.5F, 0.0F}, {0, 255, 0, 255}},
+    //                              {{0.5F, 0.5F, 0.0F}, {0, 0, 255, 255}},
+    //                              {{-0.5F, 0.5F, 0.0F}, {255, 255, 0, 255}}};
 
     // std::vector<Vertex> vertices{
     //     {{-0.5F, -0.5F, 0.0F}, {255, 0, 0, 255}},  {{0.5F, -0.5F, 0.0F}, {0, 255, 0, 255}},
@@ -214,9 +275,10 @@ auto main(int argc, char* argv[]) -> int {
     // 创建索引缓冲
     SDL_GPUBuffer* indexBuffer{SDL_CreateGPUBuffer(device, &indexBufferCreateInfo)};
     if (indexBuffer == nullptr) {
-        LOG_ERROR("程序毙掉了 无法创建gpu顶点缓冲区");
+        LOG_SDL_ERROR("程序毙掉了 无法创建gpu顶点缓冲区");
         return 1;
     }
+    SDL_SetGPUBufferName(device, indexBuffer, "Index Buffer");
 
     // 描述缓冲区属性
     SDL_GPUBufferCreateInfo vertexBufferCreateInfo{};
@@ -226,9 +288,10 @@ auto main(int argc, char* argv[]) -> int {
     // 创建顶点缓冲
     SDL_GPUBuffer* vertexBuffer{SDL_CreateGPUBuffer(device, &vertexBufferCreateInfo)};
     if (vertexBuffer == nullptr) {
-        LOG_ERROR("程序毙掉了 无法创建gpu顶点缓冲区");
+        LOG_SDL_ERROR("程序毙掉了 无法创建gpu顶点缓冲区");
         return 1;
     }
+    SDL_SetGPUBufferName(device, vertexBuffer, "Vertex Buffer");
     /*
     CPU不能直接把数据扔进GPU核心显存
     需要先搬运到这个，再通过GPU内部的CopyPass搬运到目标Buffer。
@@ -242,7 +305,7 @@ auto main(int argc, char* argv[]) -> int {
     SDL_GPUTransferBuffer* transferBuffer{
         SDL_CreateGPUTransferBuffer(device, &transferBufferCreateInfo)};
     if (transferBuffer == nullptr) {
-        LOG_ERROR("程序毙掉了 无法创建传输缓冲区");
+        LOG_SDL_ERROR("程序毙掉了 无法创建传输缓冲区");
         return 1;
     }
 
@@ -250,7 +313,7 @@ auto main(int argc, char* argv[]) -> int {
     auto* transferBufferDataPtr{
         static_cast<Uint8*>(SDL_MapGPUTransferBuffer(device, transferBuffer, false))};
     if (transferBufferDataPtr == nullptr) {
-        LOG_ERROR("程序毙掉了 无法映射传输缓冲区");
+        LOG_SDL_ERROR("程序毙掉了 无法映射传输缓冲区");
         return 1;
     }
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
@@ -274,13 +337,38 @@ auto main(int argc, char* argv[]) -> int {
                 ^             ^
         顶点开始位置   索引开始位置
     */
-    // 取消映射gpu交换缓冲
+    // 取消映射gpu传输缓冲
     SDL_UnmapGPUTransferBuffer(device, transferBuffer);
+
+    // 纹理传输缓冲
+    SDL_GPUTransferBufferCreateInfo textureTransferBufferCreateInfo{};
+    textureTransferBufferCreateInfo.size =
+        imageData->pitch * imageData->h; // pitch为一行像素的字节数
+    textureTransferBufferCreateInfo.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD; // 上传
+    SDL_GPUTransferBuffer* textureTransferBuffer{
+        SDL_CreateGPUTransferBuffer(device, &textureTransferBufferCreateInfo)}; // 创建传输缓冲
+    if (textureTransferBuffer == nullptr) {
+        LOG_SDL_ERROR("程序毙掉了: 无法创建纹理传输缓冲区");
+    }
+
+    // 映射gpu传输缓冲并获取指针
+    auto* textureTransferBufferDataPtr{
+        static_cast<Uint8*>(SDL_MapGPUTransferBuffer(device, textureTransferBuffer, false))};
+    if (textureTransferBufferDataPtr == nullptr) {
+        LOG_SDL_ERROR("程序毙掉了 无法映射传输缓冲区");
+        return 1;
+    }
+
+    std::memcpy(textureTransferBufferDataPtr, imageData->pixels,
+                textureTransferBufferCreateInfo.size); // 复制像素数据
+
+    // 取消映射gpu传输缓冲
+    SDL_UnmapGPUTransferBuffer(device, textureTransferBuffer);
 
     // 获取gpu命令缓冲
     SDL_GPUCommandBuffer* transferCommendBuffer{SDL_AcquireGPUCommandBuffer(device)};
     if (transferCommendBuffer == nullptr) {
-        LOG_ERROR("程序毙掉了 无法获得gpu命令缓冲");
+        LOG_SDL_ERROR("程序毙掉了 无法获得gpu命令缓冲");
         return 1;
     }
     // 打开gpu复制通道
@@ -304,17 +392,36 @@ auto main(int argc, char* argv[]) -> int {
     // 上传到gpu缓冲
     SDL_UploadToGPUBuffer(copyPass, &source, &destination, false);
 
+    // 描述上传的地方
+    SDL_GPUTextureTransferInfo textureTransferInfo{};
+    textureTransferInfo.transfer_buffer = textureTransferBuffer;
+    textureTransferInfo.offset = 0;
+    // 描述上传的纹理
+    SDL_GPUTextureRegion textureRegion{};
+    textureRegion.texture = texture;
+    // 起点坐标
+    textureRegion.x = 0;
+    textureRegion.y = 0;
+    textureRegion.z = 0;
+
+    textureRegion.w = imageData->w; // 写入的宽度
+    textureRegion.h = imageData->h; // 写入的高度
+    textureRegion.d = 1;            // 写入的深度
+    // 上传到gpu缓冲
+    SDL_UploadToGPUTexture(copyPass, &textureTransferInfo, &textureRegion, false);
+
     // 结束gpu复制通道
     SDL_EndGPUCopyPass(copyPass);
 
     // 提交gpu命令缓冲
     if (!SDL_SubmitGPUCommandBuffer(transferCommendBuffer)) {
-        LOG_ERROR("程序毙掉了 无法提交gpu命令缓冲");
+        LOG_SDL_ERROR("程序毙掉了 无法提交gpu命令缓冲");
         return 1;
     }
 
     // 释放gpu传输缓冲
     SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
+    SDL_ReleaseGPUTransferBuffer(device, textureTransferBuffer);
 
     // 显示窗口
     SDL_ShowWindow(window);
@@ -346,14 +453,12 @@ auto main(int argc, char* argv[]) -> int {
         // 获取gpu命令缓冲
         SDL_GPUCommandBuffer* commendBuffer{SDL_AcquireGPUCommandBuffer(device)};
         if (commendBuffer == nullptr) {
-            LOG_ERROR("程序毙掉了 无法获得gpu命令缓冲");
+            LOG_SDL_ERROR("程序毙掉了 无法获得gpu命令缓冲");
             return 1;
         }
         SDL_GPUTexture* swapChainTexture = nullptr;
-        // SDL_AcquireGPUSwapchainTexture(commendBuffer, window, &swapChainTexture, nullptr,
-        // nullptr);//这是测试极限用的,未来的傻福蛇别开
 
-        // 等待并获取gpu交换链贴图
+        // 等待并获取gpu交换链纹理
         SDL_WaitAndAcquireGPUSwapchainTexture(commendBuffer, window, &swapChainTexture, nullptr,
                                               nullptr);
         if (swapChainTexture != nullptr) {
@@ -377,6 +482,14 @@ auto main(int argc, char* argv[]) -> int {
             SDL_GPUBufferBinding indexBufferBinding{indexBuffer, 0};
             // 绑定索引缓冲区到渲染通道
             SDL_BindGPUIndexBuffer(renderPass, &indexBufferBinding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+
+            SDL_GPUTextureSamplerBinding textureSamplerBinding{};
+            textureSamplerBinding.texture = texture;
+            textureSamplerBinding.sampler = sampler;
+            std::vector textureSamplerBindings{textureSamplerBinding};
+            // 将采样器和纹理绑定到片段着色器
+            SDL_BindGPUFragmentSamplers(renderPass, 0, textureSamplerBindings.data(),
+                                        textureSamplerBindings.size());
             // 绘制带索引的三角形
             SDL_DrawGPUIndexedPrimitives(renderPass, indices.size(), 1, 0, 0, 0);
             // 结束渲染通道
@@ -388,7 +501,7 @@ auto main(int argc, char* argv[]) -> int {
         */
         // 提交gpu命令缓冲
         if (!SDL_SubmitGPUCommandBuffer(commendBuffer)) {
-            LOG_ERROR("程序毙掉了 无法提交gpu命令缓冲");
+            LOG_SDL_ERROR("程序毙掉了 无法提交gpu命令缓冲");
             return 1;
         }
     }
@@ -398,6 +511,9 @@ auto main(int argc, char* argv[]) -> int {
     SDL_ReleaseGPUBuffer(device, indexBuffer);
     SDL_ReleaseGPUGraphicsPipeline(device, graphicsPipeline);
     SDL_ReleaseWindowFromGPUDevice(device, window);
+    SDL_ReleaseGPUTexture(device, texture);
+    SDL_ReleaseGPUSampler(device, sampler);
+    SDL_DestroySurface(imageData);
     SDL_DestroyGPUDevice(device);
     SDL_DestroyWindow(window);
     SDL_Quit();

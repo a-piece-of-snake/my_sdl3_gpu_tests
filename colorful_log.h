@@ -1,6 +1,5 @@
 #pragma once
 #include <SDL3/SDL.h>
-#include <cstdarg>
 #include <cstdio>
 #include <print>
 
@@ -76,3 +75,6 @@ inline void SDLCALL MySDLLogOutput(void* userdata, int category, SDL_LogPriority
 #define LOG_ERROR(fmt, ...) logMessage(RED, "ERROR", __FILE__, __LINE__, fmt, true, ##__VA_ARGS__)
 #define LOG_SUCCESS(fmt, ...)                                                                      \
     logMessage(GREEN, "SUCCESS", __FILE__, __LINE__, fmt, false, ##__VA_ARGS__)
+#define LOG_SDL_ERROR(fmt, ...)                                                                    \
+    logMessage(BOLD_RED, "SDL_ERROR", __FILE__, __LINE__, fmt " [SDL_Error: %s]", true,            \
+               ##__VA_ARGS__, SDL_GetError())
