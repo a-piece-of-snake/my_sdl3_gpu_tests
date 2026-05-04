@@ -72,15 +72,11 @@ auto main(int argc, char* argv[]) -> int {
     }
 
     // 加载图片
-    SDL_Surface* imageData{LoadImage("snake.png", 4)};
+    SDL_Surface* imageData{LoadImage("snake2.png", 4)};
 
     SDL_GPUColorTargetDescription colorTargetDescription{
         .format = SDL_GetGPUSwapchainTextureFormat(device, window)};
     std::vector colorTargetDescriptions{colorTargetDescription};
-
-    SDL_GPUGraphicsPipelineTargetInfo graphicsPipelineTargetInfo{
-        .color_target_descriptions = colorTargetDescriptions.data(),
-        .num_color_targets = static_cast<Uint32>(colorTargetDescriptions.size())};
 
     std::vector<SDL_GPUVertexAttribute> vertexAttributes{
         // 描述一个顶点数据是如何分布的
@@ -92,23 +88,43 @@ auto main(int argc, char* argv[]) -> int {
     std::vector<SDL_GPUVertexBufferDescription> vertexBufferDescriptions{
         {0, sizeof(Vertex), SDL_GPU_VERTEXINPUTRATE_VERTEX, 0}};
 
-    // 输入顶点的状态
-    SDL_GPUVertexInputState vertexInputState{
-        .vertex_buffer_descriptions = vertexBufferDescriptions.data(),
-        .num_vertex_buffers = static_cast<Uint32>(vertexBufferDescriptions.size()),
-        .vertex_attributes = vertexAttributes.data(),
-        .num_vertex_attributes = static_cast<Uint32>(vertexAttributes.size())};
+    SDL_GPUTextureFormat depthStencilFormat{};
+
+    if (SDL_GPUTextureSupportsFormat(
+            device, SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT, SDL_GPU_TEXTURETYPE_2D,
+            SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET)) { // 老硬件兼容性好 省显存
+        depthStencilFormat = SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT;
+        LOG_INFO("Depth stencil fromat : D24_S8");
+    } else if (SDL_GPUTextureSupportsFormat(
+                   device, SDL_GPU_TEXTUREFORMAT_D32_FLOAT_S8_UINT, SDL_GPU_TEXTURETYPE_2D,
+                   SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET)) { // 现代GPU 浮点精度高
+        depthStencilFormat = SDL_GPU_TEXTUREFORMAT_D32_FLOAT_S8_UINT;
+        LOG_INFO("Depth stencil fromat : D32_S8");
+    } else {
+        LOG_SDL_ERROR("程序毙掉了 找不到合适的depth stencil格式");
+        return 1;
+    }
 
     // 描述图形管线的属性
     SDL_GPUGraphicsPipelineCreateInfo graphicsPipelineCreateInfo{
-
         .vertex_shader = vertexShader,
         .fragment_shader = fragmentShader,
-
-        .vertex_input_state = vertexInputState,
+        // 输入顶点的状态
+        .vertex_input_state = {.vertex_buffer_descriptions = vertexBufferDescriptions.data(),
+                               .num_vertex_buffers =
+                                   static_cast<Uint32>(vertexBufferDescriptions.size()),
+                               .vertex_attributes = vertexAttributes.data(),
+                               .num_vertex_attributes =
+                                   static_cast<Uint32>(vertexAttributes.size())},
         .primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,     // 每三个点组成一个独立的三角形
         .rasterizer_state = {.fill_mode = SDL_GPU_FILLMODE_FILL}, // 画实心
-        .target_info = graphicsPipelineTargetInfo};
+        .depth_stencil_state = {.compare_op = SDL_GPU_COMPAREOP_LESS, // 越远越小
+                                .enable_depth_test = true,
+                                .enable_depth_write = true},
+        .target_info = {.color_target_descriptions = colorTargetDescriptions.data(),
+                        .num_color_targets = static_cast<Uint32>(colorTargetDescriptions.size()),
+                        .depth_stencil_format = depthStencilFormat, // 我不知道
+                        .has_depth_stencil_target = true}};
     // 创建gpu图形管线
     SDL_GPUGraphicsPipeline* graphicsPipeline{
         SDL_CreateGPUGraphicsPipeline(device, &graphicsPipelineCreateInfo)};
@@ -120,6 +136,23 @@ auto main(int argc, char* argv[]) -> int {
     SDL_ReleaseGPUShader(device, vertexShader);
     SDL_ReleaseGPUShader(device, fragmentShader);
 
+    int windowWidth = 0;
+    int windowHeight = 0;
+    if (!SDL_GetWindowSize(window, &windowWidth, &windowHeight)) {
+        LOG_SDL_ERROR("程序毙掉了 无法获取窗口大小");
+    }
+
+    SDL_GPUTextureCreateInfo depthStencilTextureCreateInfo{
+        .format = depthStencilFormat,
+        .usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET,
+        .width = static_cast<Uint32>(windowWidth),
+        .height = static_cast<Uint32>(windowHeight),
+        .layer_count_or_depth = 1,
+        .num_levels = 1};
+    auto* depthStencilTexture{SDL_CreateGPUTexture(device, &depthStencilTextureCreateInfo)};
+    if (depthStencilTexture == nullptr) {
+        LOG_SDL_ERROR("程序毙掉了 无法创建深度纹理");
+    }
     // LinearClamp (线性过滤 边缘拉伸)
     SDL_GPUSamplerCreateInfo samplerCreateInfo{
         .min_filter = SDL_GPU_FILTER_LINEAR, // 缩小线性
@@ -144,13 +177,13 @@ auto main(int argc, char* argv[]) -> int {
     if (texture == nullptr) {
         LOG_SDL_ERROR("程序毙掉了: 无法创建gpu纹理");
     }
-    SDL_SetGPUTextureName(device, texture, "snake.png"); // 设置纹理名称
+    SDL_SetGPUTextureName(device, texture, "snake2.png"); // 设置纹理名称
 
     // 长方形
-    std::vector<Vertex> vertices{{{-0.5F, -0.5F, 0.0F}, {1.0F, 1.0F}},
-                                 {{0.5F, -0.5F, 0.0F}, {0.0F, 1.0F}},
-                                 {{0.5F, 0.5F, 0.0F}, {0.0F, 0.0F}},
-                                 {{-0.5F, 0.5F, 0.0F}, {1.0F, 0.0F}}};
+    // std::vector<Vertex> vertices{{{-0.5F, -0.5F, 0.0F}, {1.0F, 1.0F}},
+    //                              {{0.5F, -0.5F, 0.0F}, {0.0F, 1.0F}},
+    //                              {{0.5F, 0.5F, 0.0F}, {0.0F, 0.0F}},
+    //                              {{-0.5F, 0.5F, 0.0F}, {1.0F, 0.0F}}};
 
     // std::vector<Vertex> vertices{{{-0.5F, -0.5F, 0.0F}, {255, 0, 0, 255}},
     //                              {{0.5F, -0.5F, 0.0F}, {0, 255, 0, 255}},
@@ -161,9 +194,55 @@ auto main(int argc, char* argv[]) -> int {
     //     {{-0.5F, -0.5F, 0.0F}, {255, 0, 0, 255}},  {{0.5F, -0.5F, 0.0F}, {0, 255, 0, 255}},
     //     {{0.5F, 0.5F, 0.0F}, {0, 0, 255, 255}},    {{0.5F, 0.5F, 0.0F}, {0, 0, 255, 255}},
     //     {{-0.5F, 0.5F, 0.0F}, {255, 255, 0, 255}}, {{-0.5F, -0.5F, 0.0F}, {255, 0, 0, 255}}};
+    // 立方体
+    std::vector<Vertex> vertices{// 前
+                                 {{-0.5F, -0.5F, 0.5F}, {0.0F, 1.0F}},
+                                 {{0.5F, -0.5F, 0.5F}, {1.0F, 1.0F}},
+                                 {{0.5F, 0.5F, 0.5F}, {1.0F, 0.0F}},
+                                 {{-0.5F, 0.5F, 0.5F}, {0.0F, 0.0F}},
+
+                                 // 后
+                                 {{0.5F, -0.5F, -0.5F}, {0.0F, 1.0F}},
+                                 {{-0.5F, -0.5F, -0.5F}, {1.0F, 1.0F}},
+                                 {{-0.5F, 0.5F, -0.5F}, {1.0F, 0.0F}},
+                                 {{0.5F, 0.5F, -0.5F}, {0.0F, 0.0F}},
+
+                                 // 左
+                                 {{-0.5F, -0.5F, -0.5F}, {0.0F, 1.0F}},
+                                 {{-0.5F, -0.5F, 0.5F}, {1.0F, 1.0F}},
+                                 {{-0.5F, 0.5F, 0.5F}, {1.0F, 0.0F}},
+                                 {{-0.5F, 0.5F, -0.5F}, {0.0F, 0.0F}},
+
+                                 // 右
+                                 {{0.5F, -0.5F, 0.5F}, {0.0F, 1.0F}},
+                                 {{0.5F, -0.5F, -0.5F}, {1.0F, 1.0F}},
+                                 {{0.5F, 0.5F, -0.5F}, {1.0F, 0.0F}},
+                                 {{0.5F, 0.5F, 0.5F}, {0.0F, 0.0F}},
+
+                                 // 上
+                                 {{-0.5F, 0.5F, 0.5F}, {0.0F, 1.0F}},
+                                 {{0.5F, 0.5F, 0.5F}, {1.0F, 1.0F}},
+                                 {{0.5F, 0.5F, -0.5F}, {1.0F, 0.0F}},
+                                 {{-0.5F, 0.5F, -0.5F}, {0.0F, 0.0F}},
+
+                                 // 下
+                                 {{-0.5F, -0.5F, -0.5F}, {0.0F, 1.0F}},
+                                 {{0.5F, -0.5F, -0.5F}, {1.0F, 1.0F}},
+                                 {{0.5F, -0.5F, 0.5F}, {1.0F, 0.0F}},
+                                 {{-0.5F, -0.5F, 0.5F}, {0.0F, 0.0F}}};
 
     // 索引
-    std::vector<Uint32> indices{0, 1, 2, 2, 3, 0};
+
+    std::vector<uint32_t> indices{
+        0,  1,  2,  2,  3,  0,  // 前
+        4,  5,  6,  6,  7,  4,  // 后
+        8,  9,  10, 10, 11, 8,  // 左
+        12, 13, 14, 14, 15, 12, // 右
+        16, 17, 18, 18, 19, 16, // 上
+        20, 21, 22, 22, 23, 20  // 下
+    };
+
+    // std::vector<Uint32> indices{0, 1, 2, 2, 3, 0};
 
     // std::vector<Uint32> indices{0, 1, 2, 3, 4, 5};
 
@@ -338,12 +417,25 @@ auto main(int argc, char* argv[]) -> int {
             g_frameCount = 0;
             g_startTime = currentTime;
         }
+
+        auto windowAspectRatio{static_cast<float>(windowWidth) / static_cast<float>(windowHeight)};
         // 事件
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
             case SDL_EVENT_QUIT: { // 退出
                 isRunning = false;
                 break;
+            }
+            case SDL_EVENT_WINDOW_RESIZED: {
+                if (!SDL_GetWindowSize(window, &windowWidth, &windowHeight)) {
+                    LOG_SDL_ERROR("程序毙掉了 无法获取窗口大小");
+                }
+                windowAspectRatio =
+                    static_cast<float>(windowWidth) / static_cast<float>(windowHeight);
+                SDL_ReleaseGPUTexture(device, depthStencilTexture); // 释放旧的深度图
+                depthStencilTextureCreateInfo.width = static_cast<Uint32>(windowWidth);
+                depthStencilTextureCreateInfo.height = static_cast<Uint32>(windowHeight);
+                depthStencilTexture = SDL_CreateGPUTexture(device, &depthStencilTextureCreateInfo);
             }
             default:
                 break;
@@ -369,8 +461,14 @@ auto main(int argc, char* argv[]) -> int {
                 .store_op = SDL_GPU_STOREOP_STORE};     // 结束时：把画好的内容存起来准备显示
             std::vector colorTargets{colorTarget};
             // 开始渲染通道 录制所有绘图指令
-            SDL_GPURenderPass* renderPass{SDL_BeginGPURenderPass(commendBuffer, colorTargets.data(),
-                                                                 colorTargets.size(), nullptr)};
+            SDL_GPUDepthStencilTargetInfo depthStencilTargetInfo{
+                .texture = depthStencilTexture,  // 深度图
+                .clear_depth = 1.F,              // 默认深度为1
+                .load_op = SDL_GPU_LOADOP_CLEAR, // 开始前：清除上一帧内容
+                .clear_stencil = 0,
+            };
+            SDL_GPURenderPass* renderPass{SDL_BeginGPURenderPass(
+                commendBuffer, colorTargets.data(), colorTargets.size(), &depthStencilTargetInfo)};
             // 绑定图形管线到渲染通道
             SDL_BindGPUGraphicsPipeline(renderPass, graphicsPipeline);
 
@@ -391,14 +489,7 @@ auto main(int argc, char* argv[]) -> int {
             SDL_BindGPUFragmentSamplers(renderPass, 0, textureSamplerBindings.data(),
                                         textureSamplerBindings.size());
             // 投影视角矩阵
-            int windowWidth = 0;
-            int windowHeight = 0;
-            if (!SDL_GetWindowSize(window, &windowWidth, &windowHeight)) {
-                LOG_SDL_ERROR("程序毙掉了 无法获取窗口大小");
-            }
 
-            auto windowAspectRatio{static_cast<float>(windowWidth) /
-                                   static_cast<float>(windowHeight)};
             auto projectionMatrix{
                 glm::perspective(glm::radians(120.F), windowAspectRatio, 0.1F, 100.F)};
             // 视图矩阵
@@ -412,7 +503,8 @@ auto main(int argc, char* argv[]) -> int {
                                       glm::vec3{-1.F, -1.F, 1.F});
             auto imageAspectRatio{static_cast<float>(textureCreateInfo.width) /
                                   static_cast<float>(textureCreateInfo.height)};
-            modelMatrix = glm::scale(modelMatrix, glm::vec3{imageAspectRatio, 1.F, 1.F});
+            // modelMatrix = glm::scale(modelMatrix, glm::vec3{imageAspectRatio, 1.F, 1.F});
+            modelMatrix = glm::scale(modelMatrix, glm::vec3{1.5F});
             // MVP矩阵
             auto projectionViewMatrix{projectionMatrix * viewMatrix};
             auto modelViewProjectionMatrix{projectionViewMatrix * modelMatrix};
@@ -441,6 +533,7 @@ auto main(int argc, char* argv[]) -> int {
     SDL_ReleaseGPUGraphicsPipeline(device, graphicsPipeline);
     SDL_ReleaseWindowFromGPUDevice(device, window);
     SDL_ReleaseGPUTexture(device, texture);
+    SDL_ReleaseGPUTexture(device, depthStencilTexture);
     SDL_ReleaseGPUSampler(device, sampler);
     SDL_DestroyGPUDevice(device);
     SDL_DestroyWindow(window);
