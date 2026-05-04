@@ -4,11 +4,15 @@
 
 #include <SDL3/SDL.h>
 #include <SDL3_image/SDL_image.h>
+#include <assimp/Importer.hpp>
+#include <assimp/postprocess.h>
+#include <assimp/scene.h>
 #include <cstring>
 #include <filesystem>
 #include <glm/ext.hpp>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <ranges>
 #include <span>
 #include <string>
 #include <vector>
@@ -72,7 +76,7 @@ auto main(int argc, char* argv[]) -> int {
     }
 
     // 加载图片
-    SDL_Surface* imageData{LoadImage("snake2.png", 4)};
+    SDL_Surface* imageData{LoadImage("viking_room.png", 4)};
 
     SDL_GPUColorTargetDescription colorTargetDescription{
         .format = SDL_GetGPUSwapchainTextureFormat(device, window)};
@@ -94,12 +98,12 @@ auto main(int argc, char* argv[]) -> int {
             device, SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT, SDL_GPU_TEXTURETYPE_2D,
             SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET)) { // 老硬件兼容性好 省显存
         depthStencilFormat = SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT;
-        LOG_INFO("Depth stencil fromat : D24_S8");
+        LOG_INFO("深度纹理格式: [D24_S8]");
     } else if (SDL_GPUTextureSupportsFormat(
                    device, SDL_GPU_TEXTUREFORMAT_D32_FLOAT_S8_UINT, SDL_GPU_TEXTURETYPE_2D,
                    SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET)) { // 现代GPU 浮点精度高
         depthStencilFormat = SDL_GPU_TEXTUREFORMAT_D32_FLOAT_S8_UINT;
-        LOG_INFO("Depth stencil fromat : D32_S8");
+        LOG_INFO("深度纹理格式: [D32_S8]");
     } else {
         LOG_SDL_ERROR("程序毙掉了 找不到合适的depth stencil格式");
         return 1;
@@ -177,74 +181,38 @@ auto main(int argc, char* argv[]) -> int {
     if (texture == nullptr) {
         LOG_SDL_ERROR("程序毙掉了: 无法创建gpu纹理");
     }
-    SDL_SetGPUTextureName(device, texture, "snake2.png"); // 设置纹理名称
+    SDL_SetGPUTextureName(device, texture, "viking_room.png"); // 设置纹理名称
 
-    // 长方形
-    // std::vector<Vertex> vertices{{{-0.5F, -0.5F, 0.0F}, {1.0F, 1.0F}},
-    //                              {{0.5F, -0.5F, 0.0F}, {0.0F, 1.0F}},
-    //                              {{0.5F, 0.5F, 0.0F}, {0.0F, 0.0F}},
-    //                              {{-0.5F, 0.5F, 0.0F}, {1.0F, 0.0F}}};
+    Assimp::Importer importer;
+    const auto* scene{importer.ReadFile("Content/Models/viking_room.obj", aiProcess_Triangulate)};
+    if (scene == nullptr) {
+        LOG_ERROR("程序毙掉了 无法读取模型");
+    }
 
-    // std::vector<Vertex> vertices{{{-0.5F, -0.5F, 0.0F}, {255, 0, 0, 255}},
-    //                              {{0.5F, -0.5F, 0.0F}, {0, 255, 0, 255}},
-    //                              {{0.5F, 0.5F, 0.0F}, {0, 0, 255, 255}},
-    //                              {{-0.5F, 0.5F, 0.0F}, {255, 255, 0, 255}}};
-
-    // std::vector<Vertex> vertices{
-    //     {{-0.5F, -0.5F, 0.0F}, {255, 0, 0, 255}},  {{0.5F, -0.5F, 0.0F}, {0, 255, 0, 255}},
-    //     {{0.5F, 0.5F, 0.0F}, {0, 0, 255, 255}},    {{0.5F, 0.5F, 0.0F}, {0, 0, 255, 255}},
-    //     {{-0.5F, 0.5F, 0.0F}, {255, 255, 0, 255}}, {{-0.5F, -0.5F, 0.0F}, {255, 0, 0, 255}}};
-    // 立方体
-    std::vector<Vertex> vertices{// 前
-                                 {{-0.5F, -0.5F, 0.5F}, {0.0F, 1.0F}},
-                                 {{0.5F, -0.5F, 0.5F}, {1.0F, 1.0F}},
-                                 {{0.5F, 0.5F, 0.5F}, {1.0F, 0.0F}},
-                                 {{-0.5F, 0.5F, 0.5F}, {0.0F, 0.0F}},
-
-                                 // 后
-                                 {{0.5F, -0.5F, -0.5F}, {0.0F, 1.0F}},
-                                 {{-0.5F, -0.5F, -0.5F}, {1.0F, 1.0F}},
-                                 {{-0.5F, 0.5F, -0.5F}, {1.0F, 0.0F}},
-                                 {{0.5F, 0.5F, -0.5F}, {0.0F, 0.0F}},
-
-                                 // 左
-                                 {{-0.5F, -0.5F, -0.5F}, {0.0F, 1.0F}},
-                                 {{-0.5F, -0.5F, 0.5F}, {1.0F, 1.0F}},
-                                 {{-0.5F, 0.5F, 0.5F}, {1.0F, 0.0F}},
-                                 {{-0.5F, 0.5F, -0.5F}, {0.0F, 0.0F}},
-
-                                 // 右
-                                 {{0.5F, -0.5F, 0.5F}, {0.0F, 1.0F}},
-                                 {{0.5F, -0.5F, -0.5F}, {1.0F, 1.0F}},
-                                 {{0.5F, 0.5F, -0.5F}, {1.0F, 0.0F}},
-                                 {{0.5F, 0.5F, 0.5F}, {0.0F, 0.0F}},
-
-                                 // 上
-                                 {{-0.5F, 0.5F, 0.5F}, {0.0F, 1.0F}},
-                                 {{0.5F, 0.5F, 0.5F}, {1.0F, 1.0F}},
-                                 {{0.5F, 0.5F, -0.5F}, {1.0F, 0.0F}},
-                                 {{-0.5F, 0.5F, -0.5F}, {0.0F, 0.0F}},
-
-                                 // 下
-                                 {{-0.5F, -0.5F, -0.5F}, {0.0F, 1.0F}},
-                                 {{0.5F, -0.5F, -0.5F}, {1.0F, 1.0F}},
-                                 {{0.5F, -0.5F, 0.5F}, {1.0F, 0.0F}},
-                                 {{-0.5F, -0.5F, 0.5F}, {0.0F, 0.0F}}};
+    // 顶点
+    std::vector<Vertex> vertices;
 
     // 索引
+    std::vector<uint32_t> indices;
 
-    std::vector<uint32_t> indices{
-        0,  1,  2,  2,  3,  0,  // 前
-        4,  5,  6,  6,  7,  4,  // 后
-        8,  9,  10, 10, 11, 8,  // 左
-        12, 13, 14, 14, 15, 12, // 右
-        16, 17, 18, 18, 19, 16, // 上
-        20, 21, 22, 22, 23, 20  // 下
-    };
+    for (const auto* mesh : std::span(scene->mMeshes, scene->mNumMeshes)) {
 
-    // std::vector<Uint32> indices{0, 1, 2, 2, 3, 0};
+        auto mesh_vertices = std::span(mesh->mVertices, mesh->mNumVertices);
+        auto* mesh_uvs = mesh->mTextureCoords[0];
 
-    // std::vector<Uint32> indices{0, 1, 2, 3, 4, 5};
+        for (const auto& [index, vertex] : std::views::enumerate(mesh_vertices)) {
+            vertices.emplace_back(glm::vec3{vertex.x, vertex.y, vertex.z},
+                                  (mesh_uvs != nullptr)
+                                      ? glm::vec2{mesh_uvs[index].x, mesh_uvs[index].y}
+                                      : glm::vec2{0.F});
+        }
+
+        auto faces = std::span(mesh->mFaces, mesh->mNumFaces);
+        for (const auto& face : faces) {
+            auto face_indices = std::span(face.mIndices, face.mNumIndices);
+            indices.insert(indices.end(), face_indices.begin(), face_indices.end());
+        }
+    }
 
     // 描述缓冲区属性
     SDL_GPUBufferCreateInfo indexBufferCreateInfo{
@@ -408,10 +376,10 @@ auto main(int argc, char* argv[]) -> int {
     while (isRunning) {
         g_frameCount++;
         Uint32 currentTime = SDL_GetTicks();
-        Uint32 timeDiff = currentTime - g_startTime;
+        Uint32 time_diff = currentTime - g_startTime;
         // 计算fps
-        if (timeDiff >= 1000) {
-            g_fps = static_cast<float>(g_frameCount) / (static_cast<float>(timeDiff) / 1000.0F);
+        if (time_diff >= 1000) {
+            g_fps = static_cast<float>(g_frameCount) / (static_cast<float>(time_diff) / 1000.0F);
             SDL_SetWindowTitle(window,
                                std::string("CppProject fps:" + std::to_string(g_fps)).c_str());
             g_frameCount = 0;
@@ -500,10 +468,10 @@ auto main(int argc, char* argv[]) -> int {
 
             auto ticks{SDL_GetTicks()};
             modelMatrix = glm::rotate(modelMatrix, glm::radians(static_cast<float>(ticks) * 0.1F),
-                                      glm::vec3{-1.F, -1.F, 1.F});
-            auto imageAspectRatio{static_cast<float>(textureCreateInfo.width) /
-                                  static_cast<float>(textureCreateInfo.height)};
-            // modelMatrix = glm::scale(modelMatrix, glm::vec3{imageAspectRatio, 1.F, 1.F});
+                                      glm::vec3{0.F, 1.F, 1.F});
+            auto image_aspect_ratio{static_cast<float>(textureCreateInfo.width) /
+                                    static_cast<float>(textureCreateInfo.height)};
+            // modelMatrix = glm::scale(modelMatrix, glm::vec3{image_aspect_ratio, 1.F, 1.F});
             modelMatrix = glm::scale(modelMatrix, glm::vec3{1.5F});
             // MVP矩阵
             auto projectionViewMatrix{projectionMatrix * viewMatrix};
