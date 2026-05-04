@@ -6,7 +6,9 @@
 #include <SDL3_image/SDL_image.h>
 #include <cstring>
 #include <filesystem>
+#include <glm/ext.hpp>
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <span>
 #include <string>
 #include <vector>
@@ -59,7 +61,7 @@ auto main(int argc, char* argv[]) -> int {
     }
 
     // 读取顶点着色器
-    SDL_GPUShader* vertexShader{LoadShader(device, "TexturedQuad.vert", 0, 0, 0, 0)};
+    SDL_GPUShader* vertexShader{LoadShader(device, "TexturedQuadWithMatrix.vert", 0, 1, 0, 0)};
     if (vertexShader == nullptr) {
         LOG_SDL_ERROR("程序没毙掉 不能加载定点着色器");
     }
@@ -254,8 +256,11 @@ auto main(int argc, char* argv[]) -> int {
         return 1;
     }
 
-    std::memcpy(textureTransferBufferDataPtr, imageData->pixels,
-                textureTransferBufferCreateInfo.size); // 复制像素数据
+    // 复制像素数据
+    std::span textureDataSpan{textureTransferBufferDataPtr, textureTransferBufferCreateInfo.size};
+    std::span imagePixels{static_cast<Uint8*>(imageData->pixels),
+                          static_cast<size_t>(imageData->pitch * imageData->h)};
+    std::ranges::copy(imagePixels, textureDataSpan.begin());
 
     // 取消映射gpu传输缓冲
     SDL_UnmapGPUTransferBuffer(device, textureTransferBuffer);
@@ -385,6 +390,35 @@ auto main(int argc, char* argv[]) -> int {
             // 将采样器和纹理绑定到片段着色器
             SDL_BindGPUFragmentSamplers(renderPass, 0, textureSamplerBindings.data(),
                                         textureSamplerBindings.size());
+            // 投影视角矩阵
+            int windowWidth = 0;
+            int windowHeight = 0;
+            if (!SDL_GetWindowSize(window, &windowWidth, &windowHeight)) {
+                LOG_SDL_ERROR("程序毙掉了 无法获取窗口大小");
+            }
+
+            auto windowAspectRatio{static_cast<float>(windowWidth) /
+                                   static_cast<float>(windowHeight)};
+            auto projectionMatrix{
+                glm::perspective(glm::radians(120.F), windowAspectRatio, 0.1F, 100.F)};
+            // 视图矩阵
+            auto viewMatrix{glm::lookAt(glm::vec3{0.F, 0.F, 2.F}, glm::vec3{0.F, 0.F, 0.F},
+                                        glm::vec3{0.F, 1.F, 0.F})};
+            // 模型矩阵
+            auto modelMatrix{glm::mat4{1.F}};
+
+            auto ticks{SDL_GetTicks()};
+            modelMatrix = glm::rotate(modelMatrix, glm::radians(static_cast<float>(ticks) * 0.1F),
+                                      glm::vec3{-1.F, -1.F, 1.F});
+            auto imageAspectRatio{static_cast<float>(textureCreateInfo.width) /
+                                  static_cast<float>(textureCreateInfo.height)};
+            modelMatrix = glm::scale(modelMatrix, glm::vec3{imageAspectRatio, 1.F, 1.F});
+            // MVP矩阵
+            auto projectionViewMatrix{projectionMatrix * viewMatrix};
+            auto modelViewProjectionMatrix{projectionViewMatrix * modelMatrix};
+
+            SDL_PushGPUVertexUniformData(commendBuffer, 0, &modelViewProjectionMatrix,
+                                         sizeof(modelViewProjectionMatrix));
             // 绘制带索引的三角形
             SDL_DrawGPUIndexedPrimitives(renderPass, indices.size(), 1, 0, 0, 0);
             // 结束渲染通道

@@ -11,6 +11,7 @@ find_package(SDL3_image REQUIRED CONFIG)
 find_package(OpenGL REQUIRED)
 find_package(imgui REQUIRED CONFIG)
 find_package(glm REQUIRED CONFIG)
+find_package(assimp REQUIRED CONFIG)
 
 # =============== 源文件列表 ===============
 set(SOURCES
@@ -30,6 +31,7 @@ target_link_libraries(main PRIVATE
     OpenGL::GL
     imgui::imgui
     glm::glm
+    assimp::assimp
 )
 # =============== 复制 Content 文件夹 ===============
 set(CONTENT_SOURCE_DIR ${CMAKE_SOURCE_DIR}/Content)
